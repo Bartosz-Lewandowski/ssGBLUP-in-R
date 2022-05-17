@@ -157,11 +157,16 @@ Wald_test <- function(est, Z, X, A, sigma_a, sigma_e, size) {
 estimate_acc <- function(sigma_a, sigma_e, C, size) {
     invC = ginv(C)
     to_snp <- as.numeric(size + 3)
-    invC22 = invC[3:to_snp, 3:to_snp]
+    invC22 = invC[4:to_snp, 4:to_snp]
     alpha = sigma_e / sigma_a
     r2 = diag(1 - invC22*c(alpha))
     r = sqrt(r2)
     list(r = r, r2 = r2)
+}
+
+heriability <- function(sigma_a, sigma_e, phenotype) {
+    her <- sigma_a/(sigma_a + sigma_e)
+    write.csv(her, paste("output", "heriability", phenotye, ".csv"))
 }
 
 snp_effect <- function(estimates, size, size_perm_effects, snp_data, phenotype) {
@@ -234,7 +239,7 @@ ssSNPBLUP <- function(data_path, size = 10000, phenotype = c("y1", "y2")) {
     w_test <- Wald_test(results$est, Z, X, A, sigma_a, sigma_e, size)
     est_acc <- estimate_acc(sigma_a, sigma_e, results$C, size)
     write.csv(w_test, paste("output/", "wald", phenotype, ".csv", sep = ""), row.names=FALSE)
-    write.csv(est_acc$r2, paste("output/", "r2", phenotype, ".csv", sep = ""), row.names=FALSE)
+    write.csv(est_acc$r, paste("output/", "r", phenotype, ".csv", sep = ""), row.names=FALSE)
     snp_e <- snp_effect(results$est, size, 3, snp_data, phenotype)
 
     list(C = results$C, est = results$est, W = w_test, r = est_acc$r, r2 = est_acc$r2, snp = snp_e$snp)
@@ -244,5 +249,5 @@ ssSNPBLUP <- function(data_path, size = 10000, phenotype = c("y1", "y2")) {
 dir.create("output", showWarnings = FALSE)
 sourceCpp("MatrixInverse.cpp")
 #First phenotype
-y1_results <- ssSNPBLUP("data.csv", size = 2000, phenotype = "y1")
-y2_results <- ssSNPBLUP("data.csv", size = 2000, phenotype = "y2")
+y1_results <- ssSNPBLUP("data.csv", size = 4000, phenotype = "y1")
+y2_results <- ssSNPBLUP("data.csv", size = 4000, phenotype = "y2")
