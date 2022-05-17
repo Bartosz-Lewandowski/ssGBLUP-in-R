@@ -122,7 +122,8 @@ EM = function(y, X, Z, A, sigma_a, sigma_e, output) {
     tmp = max(abs(sigma_a - sigma_a_new), abs(sigma_e - sigma_e_new))
     sigma_a = sigma_a_new
     sigma_e = sigma_e_new
-    write.csv(c(sigma_a,sigma_e,t, tmp), output, col.names = FALSE, row.names = FALSE, append = TRUE, quote = FALSE)
+    results_df <- data.frame(loop = c(t), diff = c(tmp), sigma_a = c(sigma_a), sigme_e = c(sigma_e))
+    write.table(results_df, output, append = TRUE, row.names = FALSE, col.names=FALSE, quote = FALSE)
     t = t + 1
   }
   list(t = t, sigma_a = sigma_a, sigma_e = sigma_e)
@@ -140,6 +141,50 @@ mme2 = function(y, X, Z1, Z2, A, G, sigma_a, sigma_g, sigma_e) {
     invC = ginv(C)
     estimators = invC%*%rhs
     list(C = C, est = estimators)
+}
+
+Wald_test <- function(est, Z, X, A, sigma_a, sigma_e, size) {
+    G = A*c(sigma_a)
+    R = diag(size)*c(sigma_e)
+    V = Z%*%G%*%t(Z) + R
+    varB = ginv(t(X)%*%ginv(V)%*%X)
+    seB = sqrt(diag(varB))
+    testWalda = est[1:3] / seB
+    p_value = 2*pnorm(abs(testWalda), lower.tail = FALSE)
+    return(p_value)
+}
+
+estimate_acc <- function(sigma_a, sigma_e, C, size) {
+    invC = ginv(C)
+    to_snp <- as.numeric(size + 3)
+    invC22 = invC[3:to_snp, 3:to_snp]
+    alpha = sigma_e / sigma_a
+    r2 = diag(1 - invC22*c(alpha))
+    r = sqrt(r2)
+    list(r = r, r2 = r2)
+}
+
+snp_effect <- function(estimates, size, size_perm_effects, snp_data, phenotype) {
+    n = length(estimates)
+    print(estimates)
+    not_snp <- as.numeric(size + size_perm_effects)
+    est_snp = estimates[not_snp:n]
+    print(est_snp)
+    cat("SNPs length: \n")
+    cat(length((est_snp)))
+    cat("\n")
+    s = sd(est_snp)
+    m = mean(est_snp)
+    est_snp = est_snp / s
+    cat("SD for SNPs:\n")
+    cat(sd(est_snp))
+    cat("\n")
+    W = est_snp
+    p.value = 2*pnorm(abs(W), lower.tail = FALSE)
+    snp_s <- which(p.value < 0.05)
+    snp_df <- data.frame(snp_name = colnames(snp_data[, c(snp_s)]), values = estimates[c(snp_s)])
+    write.csv(snp_df, paste("output/", "snp", phenotype, ".csv", sep = ""), row.names = FALSE, quote = FALSE)
+    list(snp = snp_s, m = m, s = s)
 }
 
 ssSNPBLUP <- function(data_path, size = 10000, phenotype = c("y1", "y2")) {
@@ -183,56 +228,21 @@ ssSNPBLUP <- function(data_path, size = 10000, phenotype = c("y1", "y2")) {
     G = diag(length(p2))
     cat("###Calculating mme2...\n")
     results = mme2(y, X, Z, Z2, A, G, sigma_a, sigma_g, sigma_e)
-    C_file_name = paste("output/C", phenotype, ".csv", sep = "")
     est_file_name = paste("output/estimates", phenotype, ".csv", sep = "")
-    print(dim(results$C))
-    write.csv(results$C, C_file_name, col.names = FALSE, row.names = FALSE, append = TRUE, quote = FALSE)
-    write.csv(results$est, est_file_name, col.names = FALSE, row.names = FALSE, append = TRUE, quote = FALSE)
-    list(C = results$C, est = results$est, sigma_a = sigma_a, sigme_e = sigma_e, sigma_g = sigma_g)
-}
+    write.csv(results$est, est_file_name, row.names = FALSE)
 
-Wald_test <- function(est, Z, A, sigma_a, sigma_e, size) {
-    G = A*c(sigma_a)
-    R = diag(size)*c(sigma_e)
-    V = Z%*%G%*%t(Z) + R
-    varB = ginv(t(X)%*%ginv(V)%*%X)
-    seB = sqrt(diag(varB))
-    testWalda = est[1:3] / seB
-    p_value = 2*pnorm(abs(testWalda), lower.tail = FALSE)
-    return(p_value)
-}
+    w_test <- Wald_test(results$est, Z, X, A, sigma_a, sigma_e, size)
+    est_acc <- estimate_acc(sigma_a, sigma_e, results$C, size)
+    write.csv(w_test, paste("output/", "wald", phenotype, ".csv", sep = ""), row.names=FALSE)
+    write.csv(est_acc$r2, paste("output/", "r2", phenotype, ".csv", sep = ""), row.names=FALSE)
+    snp_e <- snp_effect(results$est, size, 3, snp_data, phenotype)
 
-estimate_acc <- function(y, X, Z, A, sigma_a, sigma_e, C, size) {
-    invC = ginv(C)
-    invC22 = invC[3:size+3, 3:size+3]
-    alpha = sigma_e / sigma_a
-    r2 = diag(1 - invC22*c(alpha))
-    r = sqrt(r2)
-    list(r = r, r2 = r2)
+    list(C = results$C, est = results$est, W = w_test, r = est_acc$r, r2 = est_acc$r2, snp = snp_e$snp)
 }
-
-snp_effect <- function(estimates, size, size_perm_effects) {
-    n = ncol(estimates)
-    est_snp = estimates[size_perm_effects + size : n]
-    cat("SNPs length: \n")
-    cat(length((est_snp)))
-    s = sd(est_snp)
-    m = mean(est_snp)
-    est_snp = est_snp / s
-    cat("SD for SNPs:\n")
-    cat(sd(est_snp))
-    W = est_snp
-    p.value = 2*pnorm(abs(W), lower.tail = FALSE)
-    snp_s <- which(p.value < 0.05)
-    list(snp = snp_s, m = m, s = s)
-}
-
 
 #########################################################
 dir.create("output", showWarnings = FALSE)
 sourceCpp("MatrixInverse.cpp")
 #First phenotype
-y1_results <- ssSNPBLUP("data.csv", size = 1000, phenotype = "y1")
-#Wald Test
-w_test <- Wald_test(y1_results$est)
-y2_results <- ssSNPBLUP("data.csv", size = 1000, phenotype = "y2")
+y1_results <- ssSNPBLUP("data.csv", size = 2000, phenotype = "y1")
+y2_results <- ssSNPBLUP("data.csv", size = 2000, phenotype = "y2")
